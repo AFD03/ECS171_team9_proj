@@ -7,7 +7,7 @@ import requests
 
 MODEL_PATH = "model/model.joblib"
 
-st.set_page_config(page_title="Heart Disease Risk Demo", page_icon="❤️", layout="centered")
+st.set_page_config(page_title="Heart Disease Risk Demo", layout="centered")
 
 
 # ---------------------------
@@ -168,14 +168,13 @@ with st.expander("What do these factors mean?"):
     st.markdown(
         """
 **Age**: patient age in years.  
-**Sex**: Female/Male (converted to 0/1 internally).  
+**Sex**: Female/Male.  
 
-**Chest pain type (cp)** (UCI-style):
+**Chest pain type (cp)**:
 - 1 = Typical angina
 - 2 = Atypical angina
 - 3 = Non-anginal pain
 - 4 = Asymptomatic  
-*(Your model uses `cp_4`, i.e., whether chest pain type is 4.)*
 
 **Max heart rate achieved (thalach)**: highest heart rate during exercise test.
 
