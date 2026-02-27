@@ -59,6 +59,28 @@ def haversine_km(lat1, lon1, lat2, lon2):
     a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlmb / 2) ** 2
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
+def get_location_via_ip():
+    """
+    Reliable fallback location using public IP.
+    No permissions required.
+    """
+    r = requests.get("https://ipinfo.io/json", timeout=10)
+    r.raise_for_status()
+    data = r.json()
+
+    loc = data.get("loc")  # "lat,lon"
+    if not loc:
+        return None, None, "Unknown location"
+
+    lat, lon = loc.split(",")
+
+    city = data.get("city", "")
+    region = data.get("region", "")
+    country = data.get("country", "")
+
+    label = f"{city}, {region}, {country}"
+
+    return float(lat), float(lon), label
 
 @st.cache_data(show_spinner=False)
 def reverse_geocode(lat, lon):
@@ -297,60 +319,100 @@ if submitted:
 # ---------------------------
 st.divider()
 st.subheader("📍 Optional: Location + Nearby Hospitals")
-st.caption("If you allow location access, we only use it to show nearby hospitals. No data is stored.")
+st.caption("We only use your location to show nearby hospitals. No data is stored.")
 
-# Radius in kilometers (user-facing), converted to meters for Overpass
+# Init session state (persistent across reruns)
+st.session_state.setdefault("lat", None)
+st.session_state.setdefault("lon", None)
+st.session_state.setdefault("loc_source", None)
+st.session_state.setdefault("address", None)
+st.session_state.setdefault("hospitals", None)  # store lookup results
+
+
+# ---- Settings for hospital lookup (km) ----
 col1, col2 = st.columns(2)
 with col1:
     radius_km = st.selectbox("Search radius (km)", [1, 2, 5, 10, 20, 30], index=2)
 with col2:
     max_results = st.selectbox("Max results", [5, 10, 15, 20], index=2)
 
-# Init session state
-st.session_state.setdefault("lat", None)
-st.session_state.setdefault("lon", None)
-st.session_state.setdefault("address", None)
-st.session_state.setdefault("hospitals", None)
 
-# Step 1: Get location
-if st.button("Use my current location", key="btn_get_location"):
-    coords = streamlit_js_eval(
-        js_expressions="""
-        new Promise((resolve) => {
-            navigator.geolocation.getCurrentPosition(
-                (pos) => resolve({lat: pos.coords.latitude, lon: pos.coords.longitude}),
-                () => resolve(null),
-                { enableHighAccuracy: true, timeout: 10000 }
-            );
-        })
-        """,
-        key="js_get_location"
-    )
+# ---- Location buttons ----
+colA, colB = st.columns(2)
 
-    if not coords:
-        st.warning("Location permission denied or unavailable.")
-    else:
-        st.session_state["lat"] = float(coords["lat"])
-        st.session_state["lon"] = float(coords["lon"])
-        st.session_state["hospitals"] = None  # clear old results
+with colA:
+    if st.button("Use GPS location (recommended)", key="btn_gps"):
+        coords = streamlit_js_eval(
+            js_expressions="""
+            new Promise((resolve) => {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => resolve({lat: pos.coords.latitude, lon: pos.coords.longitude}),
+                    () => resolve(null),
+                    { enableHighAccuracy: true, timeout: 8000 }
+                );
+            })
+            """,
+            want_output=True,
+            key=f"gps_{st.session_state.get('gps_clicks', 0)}"
+        )
+        st.session_state["gps_clicks"] = st.session_state.get("gps_clicks", 0) + 1
 
-        st.success("Location detected!")
+        if coords:
+            st.session_state["lat"] = float(coords["lat"])
+            st.session_state["lon"] = float(coords["lon"])
+            st.session_state["loc_source"] = "GPS"
+            st.session_state["hospitals"] = None  # clear old results
+            st.success("Using precise GPS location.")
+        else:
+            st.warning("GPS unavailable — using approximate IP location instead.")
+            try:
+                lat, lon, label = get_location_via_ip()
+                st.session_state["lat"] = float(lat)
+                st.session_state["lon"] = float(lon)
+                st.session_state["loc_source"] = f"IP: {label}"
+                st.session_state["hospitals"] = None
+                st.success(f"Approximate location detected: {label}")
+            except Exception as e:
+                st.error("Could not determine location.")
+                st.code(str(e))
 
-        # Reverse geocode (optional)
+with colB:
+    if st.button("Use approximate location by IP (no permission)", key="btn_ip"):
         try:
-            st.session_state["address"] = reverse_geocode(st.session_state["lat"], st.session_state["lon"])
-        except Exception:
-            st.session_state["address"] = None
+            lat, lon, label = get_location_via_ip()
+            if lat is None or lon is None:
+                st.warning("IP location failed to return coordinates.")
+            else:
+                st.session_state["lat"] = float(lat)
+                st.session_state["lon"] = float(lon)
+                st.session_state["loc_source"] = f"IP: {label}"
+                st.session_state["hospitals"] = None
+                st.success(f"Approximate location detected: {label}")
+        except Exception as e:
+            st.error("IP location lookup failed.")
+            st.code(str(e))
 
-# Show current location if we have it
+
+# ---- Show location + add hospital lookup button ----
 if st.session_state["lat"] is not None and st.session_state["lon"] is not None:
     lat, lon = st.session_state["lat"], st.session_state["lon"]
+    st.success(f"Location set via: {st.session_state['loc_source']}")
     st.write(f"**Latitude:** {lat:.5f}  |  **Longitude:** {lon:.5f}")
+
+    # Optional: reverse geocode address (nice for demo)
+    if st.button("Show approximate address", key="btn_address"):
+        try:
+            st.session_state["address"] = reverse_geocode(lat, lon)
+        except Exception as e:
+            st.session_state["address"] = None
+            st.warning("Could not reverse-geocode address.")
+            st.code(str(e))
+
     if st.session_state["address"]:
         st.write(f"**Approx. address:** {st.session_state['address']}")
 
-    # Step 2: Find hospitals
-    if st.button("Find hospitals nearby", key="btn_find_hospitals"):
+    # Hospital lookup
+    if st.button("Find nearby hospitals/clinics", key="btn_find_hospitals"):
         radius_m = int(radius_km * 1000)
         with st.spinner(f"Searching within {radius_km} km..."):
             try:
@@ -361,13 +423,14 @@ if st.session_state["lat"] is not None and st.session_state["lon"] is not None:
                 st.error("Hospital lookup failed (Overpass API might be busy). Try again or change radius.")
                 st.code(str(e))
 
-    # Always display hospitals if present in session_state
+    # ---- Always render results if available ----
     if st.session_state["hospitals"] is not None:
         hospitals = st.session_state["hospitals"]
+
         if len(hospitals) == 0:
             st.warning(f"No hospitals/clinics found within {radius_km} km.")
         else:
-            st.markdown("### Nearby hospitals/clinics")
+            st.markdown("### 🏥 Nearby hospitals/clinics")
 
             df_h = pd.DataFrame(hospitals)
             df_h["distance_km"] = df_h["distance_km"].map(lambda x: round(float(x), 2))
@@ -377,14 +440,15 @@ if st.session_state["lat"] is not None and st.session_state["lon"] is not None:
             hosp_df = df_h[["lat", "lon"]]
             st.map(pd.concat([user_df, hosp_df], ignore_index=True))
 
-            # Table
+            # Table list
             st.dataframe(
                 df_h[["name", "amenity", "distance_km", "lat", "lon"]],
                 use_container_width=True
             )
 
-            # Closest
+            # Closest facility
             top = hospitals[0]
             st.info(f"Closest: **{top['name']}** ({top['distance_km']:.2f} km)")
+
 else:
-    st.info("Click **Use my current location** to enable nearby hospital lookup.")
+    st.info("Choose GPS or IP-based location to enable nearby hospital lookup.")
