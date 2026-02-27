@@ -295,7 +295,7 @@ if submitted:
 # Location + Hospitals section
 # ---------------------------
 st.divider()
-st.subheader("📍 Optional: Location + Nearby Hospitals")
+st.subheader("Nearby Hospitals")
 st.caption("If you allow location access, we only use it to show nearby hospitals. No data is stored.")
 
 # Radius in kilometers (user-facing), converted to meters for Overpass
