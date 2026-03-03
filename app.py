@@ -232,13 +232,68 @@ with st.expander("Risk scale legend (probability → label)"):
 
 
 # ---------------------------
+# Sample patients (for demo)
+# ---------------------------
+st.divider()
+st.subheader(" Try sample patients")
+
+# Initialize defaults in session_state (only once)
+defaults = {
+    "age": 45,
+    "sex_label": "Male",
+    "cp_choice": "4 — Asymptomatic",
+    "thalach": 150,
+    "oldpeak": 1,
+    "exang_label": "0 — No",
+    "ca": 0,
+    "thal_choice": "3 — Normal",
+}
+for k, v in defaults.items():
+    st.session_state.setdefault(k, v)
+
+# Two demo samples tuned to your 8-feature model
+HIGH_RISK_SAMPLE = {
+    "age": 62,
+    "sex_label": "Male",
+    "cp_choice": "4 — Asymptomatic",      # cp_4 = 1
+    "thalach": 110,                        # low max HR
+    "oldpeak": 3,                         # higher ST depression
+    "exang_label": "1 — Yes",             # exang = 1
+    "ca": 2,                              # more vessels
+    "thal_choice": "7 — Reversible defect" # thal_7.0 = 1
+}
+
+HEALTHY_SAMPLE = {
+    "age": 48,
+    "sex_label": "Male",
+    "cp_choice": "1 — Typical angina",    # cp_4 = 0
+    "thalach": 175,                       # higher max HR
+    "oldpeak": 0,
+    "exang_label": "0 — No",
+    "ca": 0,
+    "thal_choice": "3 — Normal"
+}
+
+c1, c2 = st.columns(2)
+with c1:
+    if st.button("Load High-Risk Sample", use_container_width=True):
+        st.session_state.update(HIGH_RISK_SAMPLE)
+        st.success("High-risk sample loaded. Scroll down and click Predict.")
+
+with c2:
+    if st.button("Load Healthy Sample", use_container_width=True):
+        st.session_state.update(HEALTHY_SAMPLE)
+        st.success("Healthy sample loaded. Scroll down and click Predict.")
+
+# ---------------------------
 # Patient input form
 # ---------------------------
 with st.form("patient_form"):
     st.subheader("Enter patient info")
 
-    age = st.selectbox("Age (years)", list(range(1, 121)), index=44)  # default 45
-    sex_label = st.selectbox("Sex", ["Female", "Male"])
+    age = st.selectbox("Age (years)", list(range(1, 121)), key="age")
+
+    sex_label = st.selectbox("Sex", ["Female", "Male"], key="sex_label")
 
     cp_map = {
         "1 — Typical angina": 1,
@@ -246,24 +301,24 @@ with st.form("patient_form"):
         "3 — Non-anginal pain": 3,
         "4 — Asymptomatic": 4,
     }
-    cp_choice = st.selectbox("Chest pain type (cp)", list(cp_map.keys()))
+    cp_choice = st.selectbox("Chest pain type (cp)", list(cp_map.keys()), key="cp_choice")
     cp = cp_map[cp_choice]
 
-    thalach = st.selectbox("Max heart rate achieved (thalach)", list(range(60, 221)), index=90)  # default ~150
+    thalach = st.selectbox("Max heart rate achieved (thalach)", list(range(60, 221)), key="thalach")
 
-    oldpeak = st.selectbox("Oldpeak (integer for demo)", list(range(0, 11)), index=1)
+    oldpeak = st.selectbox("Oldpeak (integer for demo)", list(range(0, 11)), key="oldpeak")
 
-    exang_label = st.selectbox("Exercise-induced angina (exang)", ["0 — No", "1 — Yes"])
+    exang_label = st.selectbox("Exercise-induced angina (exang)", ["0 — No", "1 — Yes"], key="exang_label")
     exang = 1 if exang_label.startswith("1") else 0
 
-    ca = st.selectbox("Number of major vessels (ca)", [0, 1, 2, 3, 4], index=0)
+    ca = st.selectbox("Number of major vessels (ca)", [0, 1, 2, 3, 4], key="ca")
 
     thal_map = {
         "3 — Normal": 3,
         "6 — Fixed defect": 6,
         "7 — Reversible defect": 7,
     }
-    thal_choice = st.selectbox("Thal (thal)", list(thal_map.keys()))
+    thal_choice = st.selectbox("Thal (thal)", list(thal_map.keys()), key="thal_choice")
     thal = thal_map[thal_choice]
 
     submitted = st.form_submit_button("Predict")
@@ -314,140 +369,157 @@ if submitted:
 
 
 # ---------------------------
-# Location + Hospitals section
+# Location + Hospitals section (GPS first, fallback to IP; address-only UI + hospital addresses)
 # ---------------------------
 st.divider()
 st.subheader("Nearby Hospitals")
-st.caption("If you allow location access, we only use it to show nearby hospitals. No data is stored.")
+st.caption("We only use your location to show nearby hospitals. No data is stored.")
 
-# Init session state (persistent across reruns)
+# ---- Session state ----
 st.session_state.setdefault("lat", None)
 st.session_state.setdefault("lon", None)
-st.session_state.setdefault("loc_source", None)
 st.session_state.setdefault("address", None)
-st.session_state.setdefault("hospitals", None)  # store lookup results
+st.session_state.setdefault("hospitals", None)
+st.session_state.setdefault("gps_clicks", 0)
 
+# ---- Short reverse geocode for hospitals (cached) ----
+@st.cache_data(show_spinner=False)
+def reverse_geocode_short(lat, lon):
+    """
+    Reverse geocode to a shorter, user-friendly address string.
+    Cached to reduce requests.
+    """
+    url = "https://nominatim.openstreetmap.org/reverse"
+    params = {"format": "jsonv2", "lat": lat, "lon": lon, "zoom": 18, "addressdetails": 1}
+    headers = {"User-Agent": "ECS171-HeartDemo/1.0 (educational project)"}
 
-# ---- Settings for hospital lookup (km) ----
+    r = requests.get(url, params=params, headers=headers, timeout=15)
+    r.raise_for_status()
+    data = r.json()
+    a = data.get("address", {})
+
+    road = a.get("road") or a.get("pedestrian") or a.get("footway") or ""
+    house = a.get("house_number") or ""
+    city = a.get("city") or a.get("town") or a.get("village") or ""
+    state = a.get("state") or ""
+    postcode = a.get("postcode") or ""
+
+    street = (f"{house} {road}").strip()
+    parts = [p for p in [street, city, state, postcode] if p]
+    return ", ".join(parts) if parts else data.get("display_name", "Address unavailable")
+
+# ---- Controls (km) ----
 col1, col2 = st.columns(2)
 with col1:
     radius_km = st.selectbox("Search radius (km)", [1, 2, 5, 10, 20, 30], index=2)
 with col2:
     max_results = st.selectbox("Max results", [5, 10, 15, 20], index=2)
 
+# ---- Get your address (GPS first -> IP fallback) ----
+if st.button("Get your address", key="btn_get_address"):
+    st.session_state["hospitals"] = None  # clear previous results
 
-# ---- Location buttons ----
-colA, colB = st.columns(2)
+    # 1) Try GPS first
+    coords = streamlit_js_eval(
+        js_expressions="""
+        new Promise((resolve) => {
+            if (!navigator.geolocation) { resolve(null); return; }
+            navigator.geolocation.getCurrentPosition(
+                (pos) => resolve({lat: pos.coords.latitude, lon: pos.coords.longitude}),
+                () => resolve(null),
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
+        })
+        """,
+        want_output=True,
+        key=f"gps_addr_{st.session_state['gps_clicks']}"
+    )
+    st.session_state["gps_clicks"] += 1
 
-with colA:
-    if st.button("Use GPS location (recommended)", key="btn_gps"):
-        coords = streamlit_js_eval(
-            js_expressions="""
-            new Promise((resolve) => {
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => resolve({lat: pos.coords.latitude, lon: pos.coords.longitude}),
-                    () => resolve(null),
-                    { enableHighAccuracy: true, timeout: 8000 }
-                );
-            })
-            """,
-            want_output=True,
-            key=f"gps_{st.session_state.get('gps_clicks', 0)}"
-        )
-        st.session_state["gps_clicks"] = st.session_state.get("gps_clicks", 0) + 1
-
-        if coords:
-            st.session_state["lat"] = float(coords["lat"])
-            st.session_state["lon"] = float(coords["lon"])
-            st.session_state["loc_source"] = "GPS"
-            st.session_state["hospitals"] = None  # clear old results
-            st.success("Using precise GPS location.")
-        else:
-            st.warning("GPS unavailable — using approximate IP location instead.")
-            try:
-                lat, lon, label = get_location_via_ip()
-                st.session_state["lat"] = float(lat)
-                st.session_state["lon"] = float(lon)
-                st.session_state["loc_source"] = f"IP: {label}"
-                st.session_state["hospitals"] = None
-                st.success(f"Approximate location detected: {label}")
-            except Exception as e:
-                st.error("Could not determine location.")
-                st.code(str(e))
-
-with colB:
-    if st.button("Use approximate location by IP (no permission)", key="btn_ip"):
+    if coords:
+        # GPS success
+        st.session_state["lat"] = float(coords["lat"])
+        st.session_state["lon"] = float(coords["lon"])
+        try:
+            st.session_state["address"] = reverse_geocode(st.session_state["lat"], st.session_state["lon"])
+        except Exception:
+            st.session_state["address"] = "Address unavailable (reverse geocoding failed)."
+    else:
+        # 2) GPS failed -> IP fallback
         try:
             lat, lon, label = get_location_via_ip()
             if lat is None or lon is None:
-                st.warning("IP location failed to return coordinates.")
+                st.session_state["lat"] = None
+                st.session_state["lon"] = None
+                st.session_state["address"] = None
+                st.warning("Could not determine your location (GPS blocked and IP lookup failed).")
             else:
                 st.session_state["lat"] = float(lat)
                 st.session_state["lon"] = float(lon)
-                st.session_state["loc_source"] = f"IP: {label}"
-                st.session_state["hospitals"] = None
-                st.success(f"Approximate location detected: {label}")
+
+                # Prefer reverse-geocoded address, fallback to ip label
+                try:
+                    st.session_state["address"] = reverse_geocode(st.session_state["lat"], st.session_state["lon"])
+                except Exception:
+                    st.session_state["address"] = label
         except Exception as e:
-            st.error("IP location lookup failed.")
-            st.code(str(e))
-
-
-# ---- Show location + add hospital lookup button ----
-if st.session_state["lat"] is not None and st.session_state["lon"] is not None:
-    lat, lon = st.session_state["lat"], st.session_state["lon"]
-    st.success(f"Location set via: {st.session_state['loc_source']}")
-    st.write(f"**Latitude:** {lat:.5f}  |  **Longitude:** {lon:.5f}")
-
-    # Optional: reverse geocode address (nice for demo)
-    if st.button("Show approximate address", key="btn_address"):
-        try:
-            st.session_state["address"] = reverse_geocode(lat, lon)
-        except Exception as e:
+            st.session_state["lat"] = None
+            st.session_state["lon"] = None
             st.session_state["address"] = None
-            st.warning("Could not reverse-geocode address.")
+            st.error("Address lookup failed.")
             st.code(str(e))
 
-    if st.session_state["address"]:
-        st.write(f"**Approx. address:** {st.session_state['address']}")
+# ---- Display address only (no lat/lon) ----
+if st.session_state["address"]:
+    st.write(f"**Approx. address:** {st.session_state['address']}")
+else:
+    st.info("Click **Get your address** to enable nearby hospital lookup.")
 
-    # Hospital lookup
-    if st.button("Find nearby hospitals/clinics", key="btn_find_hospitals"):
+# ---- Find nearby hospitals (requires lat/lon internally, but we won't display them) ----
+if st.session_state["lat"] is not None and st.session_state["lon"] is not None:
+    if st.button("Find nearby hospitals", key="btn_find_hospitals"):
         radius_m = int(radius_km * 1000)
         with st.spinner(f"Searching within {radius_km} km..."):
             try:
-                hospitals = find_nearby_hospitals(lat, lon, radius_m=radius_m, limit=max_results)
-                st.session_state["hospitals"] = hospitals
+                st.session_state["hospitals"] = find_nearby_hospitals(
+                    st.session_state["lat"],
+                    st.session_state["lon"],
+                    radius_m=radius_m,
+                    limit=max_results
+                )
             except Exception as e:
                 st.session_state["hospitals"] = []
                 st.error("Hospital lookup failed (Overpass API might be busy). Try again or change radius.")
                 st.code(str(e))
 
-    # ---- Always render results if available ----
-    if st.session_state["hospitals"] is not None:
-        hospitals = st.session_state["hospitals"]
+# ---- Render hospitals with addresses (no user lat/lon shown) ----
+if st.session_state["hospitals"] is not None:
+    hospitals = st.session_state["hospitals"]
 
-        if len(hospitals) == 0:
-            st.warning(f"No hospitals/clinics found within {radius_km} km.")
-        else:
-            st.markdown("### 🏥 Nearby hospitals/clinics")
+    if len(hospitals) == 0:
+        st.warning(f"No hospitals/clinics found within {radius_km} km.")
+    else:
+        st.markdown("### Nearby hospitals/clinics")
 
-            df_h = pd.DataFrame(hospitals)
-            df_h["distance_km"] = df_h["distance_km"].map(lambda x: round(float(x), 2))
+        df_h = pd.DataFrame(hospitals)
+        df_h["distance_km"] = df_h["distance_km"].map(lambda x: round(float(x), 2))
 
-            # Map: user + hospitals
-            user_df = pd.DataFrame([{"lat": lat, "lon": lon}])
-            hosp_df = df_h[["lat", "lon"]]
-            st.map(pd.concat([user_df, hosp_df], ignore_index=True))
+        # Add hospital address column (reverse geocode only top N to reduce API load)
+        df_h["address"] = "—"
+        TOP_N_ADDR = min(len(df_h), 10)
+        df_h.loc[:TOP_N_ADDR-1, "address"] = df_h.loc[:TOP_N_ADDR-1].apply(
+            lambda row: reverse_geocode_short(row["lat"], row["lon"]),
+            axis=1
+        )
 
-            # Table list
-            st.dataframe(
-                df_h[["name", "amenity", "distance_km", "lat", "lon"]],
-                use_container_width=True
-            )
+        # Optional map: shows points only (no coordinate text)
+        st.map(df_h[["lat", "lon"]])
 
-            # Closest facility
-            top = hospitals[0]
-            st.info(f"Closest: **{top['name']}** ({top['distance_km']:.2f} km)")
+        # Table: show name + distance + address
+        st.dataframe(
+            df_h[["name", "amenity", "distance_km", "address"]],
+            use_container_width=True
+        )
 
-else:
-    st.info("Choose GPS or IP-based location to enable nearby hospital lookup.")
+        top = df_h.iloc[0]
+        st.info(f"Closest: **{top['name']}** — {top['distance_km']:.2f} km — {top['address']}")
