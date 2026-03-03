@@ -210,7 +210,7 @@ with st.expander("What do these factors mean?"):
 - 3 = Normal
 - 6 = Fixed defect
 - 7 = Reversible defect  
-*(Your model uses `thal_7.0`, i.e., whether thal is 7.)*
+*(Our model uses `thal_7.0`, i.e., whether thal is 7.)*
         """
     )
 
@@ -251,7 +251,7 @@ defaults = {
 for k, v in defaults.items():
     st.session_state.setdefault(k, v)
 
-# Two demo samples tuned to your 8-feature model
+# Two demo samples tuned to our 8-feature model
 HIGH_RISK_SAMPLE = {
     "age": 62,
     "sex_label": "Male",
@@ -328,7 +328,7 @@ with st.form("patient_form"):
 # Prediction result
 # ---------------------------
 if submitted:
-    # Convert to the EXACT feature vector your trained model expects:
+    # Convert to the EXACT feature vector our trained model expects:
     # ['cp_4','ca','thal_7.0','exang','oldpeak','thalach','sex','age']
     sex = 1 if sex_label == "Male" else 0
     cp_4 = 1 if cp == 4 else 0
@@ -415,7 +415,7 @@ with col1:
 with col2:
     max_results = st.selectbox("Max results", [5, 10, 15, 20], index=2)
 
-# ---- Get your address (GPS first -> IP fallback) ----
+# ---- Get address (GPS first -> IP fallback) ----
 if st.button("Get your address", key="btn_get_address"):
     st.session_state["hospitals"] = None  # clear previous results
 
