@@ -7,7 +7,7 @@ import requests
 
 MODEL_PATH = "model/model.joblib"
 
-st.set_page_config(page_title="Heart Disease Risk Demo", layout="centered")
+st.set_page_config(page_title="Heart Disease Risk", layout="centered")
 
 
 # ---------------------------
@@ -172,9 +172,9 @@ def find_nearby_hospitals(lat, lon, radius_m=5000, limit=15):
 # ---------------------------
 # App UI
 # ---------------------------
-st.title("Heart Disease Risk Prediction (Demo)")
+st.title("Heart Disease Risk Prediction")
 st.caption("Educational demo only — not medical advice or a diagnosis.")
-
+st.caption("Team 9 - Zhichu Zheng, Alexander Davis, Tianyuan Fu")
 
 # Load model
 try:
@@ -235,7 +235,7 @@ with st.expander("Risk scale legend (probability → label)"):
 # Sample patients (for demo)
 # ---------------------------
 st.divider()
-st.subheader(" Try sample patients")
+st.subheader("Patients Prediction")
 
 # Initialize defaults in session_state (only once)
 defaults = {
