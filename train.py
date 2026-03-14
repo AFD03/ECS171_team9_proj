@@ -12,10 +12,10 @@ from sklearn.metrics import accuracy_score, classification_report
 # ----------------------------
 # Config (matches your notebook)
 # ----------------------------
-DATA_PATH = "data/heart_disease_clean.csv"   # your notebook reads this
+DATA_PATH = "final_cleaned_unseen.csv"   # your notebook reads this
 MODEL_PATH = "model/model.joblib"
 
-SELECTED_FEATURES = ['cp_4', 'ca', 'thal_7.0', 'exang', 'oldpeak', 'thalach', 'sex', 'age']
+SELECTED_FEATURES = ['cp_4',  'exang', 'oldpeak', 'thalach', 'sex', 'age']
 
 
 def detect_outliers_iqr_bounds(df: pd.DataFrame, col: str):
@@ -41,9 +41,7 @@ def build_clean_df_from_ucimlrepo(save_csv: bool = True) -> pd.DataFrame:
     Reproduces the cleaning + encoding steps in your notebook for UCI id=45.
     Creates a dataframe with a binary 'target' column.
     """
-    from ucimlrepo import fetch_ucirepo
-
-    heart_disease = fetch_ucirepo(id=45)
+    heart_disease = pd.read_csv(DATA_PATH)
     X = heart_disease.data.features.copy()
     y = heart_disease.data.targets.copy()
 
@@ -51,15 +49,12 @@ def build_clean_df_from_ucimlrepo(save_csv: bool = True) -> pd.DataFrame:
     X = X.replace('?', np.nan)
 
     # Cast columns (same lists as your notebook)
-    num_cols = ['age', 'trestbps', 'chol', 'thalach', 'oldpeak', 'ca']
-    cat_cols = ['sex', 'cp', 'fbs', 'restecg', 'exang', 'slope', 'thal']
+    num_cols = ['age', 'trestbps', 'chol', 'thalach', 'oldpeak']
+    cat_cols = ['sex', 'cp', 'fbs', 'restecg', 'exang', 'slope']
 
     X[num_cols] = X[num_cols].apply(pd.to_numeric)
     X[cat_cols] = X[cat_cols].apply(pd.to_numeric)
 
-    # Impute (same as notebook)
-    X['ca'] = X['ca'].fillna(X['ca'].median())
-    X['thal'] = X['thal'].fillna(X['thal'].mode()[0])
 
     # Cap outliers (same as notebook)
     outlier_cols = ['age', 'trestbps', 'chol', 'thalach', 'oldpeak']
@@ -69,7 +64,7 @@ def build_clean_df_from_ucimlrepo(save_csv: bool = True) -> pd.DataFrame:
     y_bin = (y['num'] > 0).astype(int)
 
     # One-hot (same as notebook)
-    X = pd.get_dummies(X, columns=['cp', 'restecg', 'slope', 'thal'], drop_first=True)
+    X = pd.get_dummies(X, columns=['cp', 'restecg', 'slope'], drop_first=True)
 
     df = X.copy()
     df['target'] = y_bin.values

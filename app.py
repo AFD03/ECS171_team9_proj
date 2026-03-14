@@ -204,13 +204,6 @@ with st.expander("What do these factors mean?"):
 
 **Exercise-induced angina (exang)**: 0 = No, 1 = Yes.
 
-**Number of major vessels (ca)**: integer 0–4 vessels colored by fluoroscopy.
-
-**Thal (thal)** (common UCI-style):
-- 3 = Normal
-- 6 = Fixed defect
-- 7 = Reversible defect  
-*(Our model uses `thal_7.0`, i.e., whether thal is 7.)*
         """
     )
 
@@ -245,8 +238,6 @@ defaults = {
     "thalach": 150,
     "oldpeak": 1,
     "exang_label": "0 — No",
-    "ca": 0,
-    "thal_choice": "3 — Normal",
 }
 for k, v in defaults.items():
     st.session_state.setdefault(k, v)
@@ -259,8 +250,6 @@ HIGH_RISK_SAMPLE = {
     "thalach": 110,                        # low max HR
     "oldpeak": 3,                         # higher ST depression
     "exang_label": "1 — Yes",             # exang = 1
-    "ca": 2,                              # more vessels
-    "thal_choice": "7 — Reversible defect" # thal_7.0 = 1
 }
 
 HEALTHY_SAMPLE = {
@@ -270,8 +259,6 @@ HEALTHY_SAMPLE = {
     "thalach": 175,                       # higher max HR
     "oldpeak": 0,
     "exang_label": "0 — No",
-    "ca": 0,
-    "thal_choice": "3 — Normal"
 }
 
 c1, c2 = st.columns(2)
@@ -311,16 +298,6 @@ with st.form("patient_form"):
     exang_label = st.selectbox("Exercise-induced angina (exang)", ["0 — No", "1 — Yes"], key="exang_label")
     exang = 1 if exang_label.startswith("1") else 0
 
-    ca = st.selectbox("Number of major vessels (ca)", [0, 1, 2, 3, 4], key="ca")
-
-    thal_map = {
-        "3 — Normal": 3,
-        "6 — Fixed defect": 6,
-        "7 — Reversible defect": 7,
-    }
-    thal_choice = st.selectbox("Thal (thal)", list(thal_map.keys()), key="thal_choice")
-    thal = thal_map[thal_choice]
-
     submitted = st.form_submit_button("Predict")
 
 
@@ -329,15 +306,12 @@ with st.form("patient_form"):
 # ---------------------------
 if submitted:
     # Convert to the EXACT feature vector our trained model expects:
-    # ['cp_4','ca','thal_7.0','exang','oldpeak','thalach','sex','age']
+    # ['cp_4','exang','oldpeak','thalach','sex','age']
     sex = 1 if sex_label == "Male" else 0
     cp_4 = 1 if cp == 4 else 0
-    thal_7 = 1 if thal == 7 else 0
 
     X = pd.DataFrame([{
         "cp_4": cp_4,
-        "ca": float(ca),
-        "thal_7.0": thal_7,
         "exang": int(exang),
         "oldpeak": float(oldpeak),
         "thalach": float(thalach),
